@@ -26,6 +26,7 @@ import (
 	"github.com/google/cql/retriever/local"
 	"github.com/google/cql/terminology"
 	"github.com/google/cql/types"
+
 	r4pb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/bundle_and_contained_resource_go_proto"
 )
 
@@ -381,7 +382,7 @@ func TestFailingEvalSingleLibrary(t *testing.T) {
 					},
 				},
 			},
-			errContains: "only ValueSet references are currently supported for valueset filtering",
+			errContains: "internal error - unsupported expression",
 		},
 		{
 			name: "Retrieve Observations with incorrect CodeProperty",
