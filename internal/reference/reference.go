@@ -437,12 +437,13 @@ func (r *Resolver[T, F]) ScopedStruct() (T, error) {
 
 // Alias creates a new alias within the current scope. When EndScope is called all aliases in the
 // scope will be removed. Calling ResolveLocal with the same name will return the stored type t.
-// Names must be unique within the CQL library.
+// Names must be unique within the current scope and cannot collide with definitions in the CQL
+// library.
 func (r *Resolver[T, F]) Alias(name string, a T) error {
 	if len(r.aliases) == 0 {
 		return errors.New("internal error - EnterScope must be called before creating an alias")
 	}
-	if err := r.isLocallyUnique(name); err != nil {
+	if err := r.isAliasUnique(name); err != nil {
 		return err
 	}
 	aKey := aliasKey{r.currLib, name}
@@ -516,6 +517,25 @@ func (r *Resolver[T, F]) isLocallyUnique(name string) error {
 	return nil
 }
 
+func (r *Resolver[T, F]) isAliasUnique(name string) error {
+	dKey := defKey{r.currLib, name}
+	if _, ok := r.defs[dKey]; ok {
+		return fmt.Errorf("identifier %v already exists in this CQL library", dKey.name)
+	}
+
+	iKey := includeKey{localID: name, includedBy: r.currLib}
+	if _, ok := r.includedLibs[iKey]; ok {
+		return fmt.Errorf("identifier %v already exists in this CQL library", iKey.localID)
+	}
+
+	aKey := aliasKey{r.currLib, name}
+	if _, ok := r.findAliasInCurrentScope(aKey); ok {
+		return fmt.Errorf("alias %v already exists", aKey.name)
+	}
+
+	return nil
+}
+
 func (r *Resolver[T, F]) isFuncLocallyUnique(name string, operands []types.IType) error {
 	if overloads, ok := r.builtinFuncs[name]; ok {
 		for _, overload := range overloads {
@@ -537,12 +557,21 @@ func (r *Resolver[T, F]) isFuncLocallyUnique(name string, operands []types.IType
 }
 
 func (r *Resolver[T, F]) findAlias(aKey aliasKey) (T, bool) {
-	for _, aMap := range r.aliases {
+	for i := len(r.aliases) - 1; i >= 0; i-- {
+		aMap := r.aliases[i]
 		if t, ok := aMap[aKey]; ok {
 			return t, true
 		}
 	}
 	return zero[T](), false
+}
+
+func (r *Resolver[T, F]) findAliasInCurrentScope(aKey aliasKey) (T, bool) {
+	if len(r.aliases) == 0 {
+		return zero[T](), false
+	}
+	t, ok := r.aliases[len(r.aliases)-1][aKey]
+	return t, ok
 }
 
 func exactMatch(ops1, ops2 []types.IType) bool {

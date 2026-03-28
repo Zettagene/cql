@@ -168,6 +168,14 @@ func TestLocalFunctions(t *testing.T) {
 			define TESTRESULT: 4.Add(4)`),
 			wantResult: newOrFatal(t, 8),
 		},
+		{
+			name: "Nested local functions can shadow operand aliases",
+			cql: dedent.Dedent(`
+			define function Inner(m Integer): m + 1
+			define function Outer(m Integer): Inner(m) + 1
+			define TESTRESULT: Outer(1)`),
+			wantResult: newOrFatal(t, 3),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
