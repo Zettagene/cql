@@ -1158,6 +1158,11 @@ func TestRound(t *testing.T) {
 			wantResult: newOrFatal(t, -101.5),
 		},
 		{
+			name:       "Negative decimal tie with higher precision rounds toward positive infinity",
+			cql:        "Round(-1.005, 2)",
+			wantResult: newOrFatal(t, -1.0),
+		},
+		{
 			name:       "Precision is 0",
 			cql:        "Round(2.123, 0)",
 			wantResult: newOrFatal(t, 2.0),

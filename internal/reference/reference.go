@@ -178,6 +178,25 @@ func (r *Resolver[T, F]) ResolveInclude(name string) *model.LibraryIdentifier {
 	return nil
 }
 
+// WithIncludedLibrary temporarily switches the current library to the named included library while
+// fn runs. This is used during interpretation so that unqualified references inside the included
+// library resolve against that library instead of the caller.
+func (r *Resolver[T, F]) WithIncludedLibrary(name string, fn func() error) error {
+	iKey := includeKey{localID: name, includedBy: r.currLib}
+	i, ok := r.includedLibs[iKey]
+	if !ok {
+		return fmt.Errorf("could not resolve the library name %s", name)
+	}
+
+	prev := r.currLib
+	r.currLib = namedLibKey{qualified: i.Qualified, version: i.Version}
+	defer func() {
+		r.currLib = prev
+	}()
+
+	return fn()
+}
+
 // Def holds the information needed to define a definition.
 type Def[T any] struct {
 	Name     string

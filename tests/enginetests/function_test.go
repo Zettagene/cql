@@ -242,6 +242,22 @@ func TestGlobalFunctions(t *testing.T) {
 			},
 			wantResult: newOrFatal(t, 2),
 		},
+		{
+			name: "Included library function resolves nested local helper",
+			cqlLibs: []string{
+				dedent.Dedent(`
+					library CQL_Helpers_Library version '1'
+					define function Inner(a Integer): a + 1
+					define function Outer(a Integer): Inner(a) + 1
+					`),
+				dedent.Dedent(`
+					library TESTLIB version '1.0.0'
+					using FHIR version '4.0.1'
+					include CQL_Helpers_Library version '1' called helpers
+					define TESTRESULT: helpers.Outer(1)`),
+			},
+			wantResult: newOrFatal(t, 3),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

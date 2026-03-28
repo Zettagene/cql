@@ -47,23 +47,38 @@ func (i *interpreter) evalFunctionRef(f *model.FunctionRef) (result.Value, error
 		return result.Value{}, err
 	}
 
-	// Evaluate the function
-	if resolved.External {
-		return result.Value{}, fmt.Errorf("function %v is external, but external functions are not supported", f.Name)
-	}
-	i.refs.EnterScope()
-	defer i.refs.ExitScope()
-	for j, op := range ops {
-		if err := i.refs.Alias(resolved.Operands[j].Name, op); err != nil {
-			return result.Value{}, err
+	evalResolved := func() (result.Value, error) {
+		// Evaluate the function
+		if resolved.External {
+			return result.Value{}, fmt.Errorf("function %v is external, but external functions are not supported", f.Name)
 		}
+		i.refs.EnterScope()
+		defer i.refs.ExitScope()
+		for j, op := range ops {
+			if err := i.refs.Alias(resolved.Operands[j].Name, op); err != nil {
+				return result.Value{}, err
+			}
+		}
+		// TODO(b/301606416): Verify that the type of the result of the evaluated function matches the
+		// return type in model.FunctionDef.
+		return i.evalExpression(resolved.Expression)
 	}
-	// TODO(b/301606416): Verify that the type of the result of the evaluated function matches the
-	// return type in model.FunctionDef.
-	r, err := i.evalExpression(resolved.Expression)
+
+	var r result.Value
+	// Evaluate the function
+	if f.LibraryName != "" {
+		err = i.refs.WithIncludedLibrary(f.LibraryName, func() error {
+			var evalErr error
+			r, evalErr = evalResolved()
+			return evalErr
+		})
+	} else {
+		r, err = evalResolved()
+	}
 	if err != nil {
 		return result.Value{}, err
 	}
+
 	// TODO(b/311222838): This currently add only the function expression to the resulting expression,
 	// since function parameters would be attached as operands in sub-expressions. We should
 	// determine whether this is sufficiently for real explainability workloads.
