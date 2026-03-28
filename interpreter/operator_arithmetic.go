@@ -19,6 +19,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/google/cql/model"
@@ -669,9 +670,6 @@ func evalNegateQuantity(m model.IUnaryExpression, obj result.Value) (result.Valu
 // If a precision is specified but is negative then an error is returned. This is technically
 // undefined behavior in the CQL spec, but we choose to throw an error here.
 func evalRound(_ model.INaryExpression, operands []result.Value) (result.Value, error) {
-	// if len(operands) == 1 {
-	// 	return roundValue(operands[0])
-	// }
 	decimalVal := operands[0]
 	var precisionVal result.Value
 	var err error
@@ -699,16 +697,27 @@ func evalRound(_ model.INaryExpression, operands []result.Value) (result.Value, 
 	if err != nil {
 		return result.Value{}, err
 	}
-	ratio := math.Pow10(int(p))
-	// CQL currently implements its own special version of rounding for now (which will be changed in
-	// the future). For now if the value is negative we round towards zero.
-	ratioedDecimal := d * ratio
-	_, frac := math.Modf(ratioedDecimal)
-	if frac == -0.5 {
-		// force go to round towards zero
-		ratioedDecimal += 0.1
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(p)), nil)
+	scaled := new(big.Rat)
+	if _, ok := scaled.SetString(strconv.FormatFloat(d, 'f', -1, 64)); !ok {
+		return result.Value{}, fmt.Errorf("internal error - could not convert decimal %v to exact rational", d)
 	}
-	return result.New(math.Round(ratioedDecimal) / ratio)
+	scaled.Mul(scaled, new(big.Rat).SetInt(scale))
+	scaled.Add(scaled, big.NewRat(1, 2))
+
+	rounded := new(big.Rat).SetFrac(floorRat(scaled), scale)
+	roundedFloat, _ := rounded.Float64()
+	return result.New(roundedFloat)
+}
+
+func floorRat(r *big.Rat) *big.Int {
+	numerator := new(big.Int).Set(r.Num())
+	denominator := new(big.Int).Set(r.Denom())
+	quotient, remainder := new(big.Int).QuoRem(numerator, denominator, new(big.Int))
+	if r.Sign() < 0 && remainder.Sign() != 0 {
+		quotient.Sub(quotient, big.NewInt(1))
+	}
+	return quotient
 }
 
 // predecessor of<T>(obj T) T

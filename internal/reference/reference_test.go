@@ -541,6 +541,47 @@ func TestParserAliasAndResolve(t *testing.T) {
 	}
 }
 
+func TestParserAliasShadowing(t *testing.T) {
+	r := NewResolver[model.IExpression, model.IExpression]()
+	if err := r.SetCurrentLibrary(&model.LibraryIdentifier{
+		Local:     "measure",
+		Qualified: "example.measure",
+		Version:   "1.0",
+	}); err != nil {
+		t.Fatalf("r.SetCurrentLibrary() unexpected err: %v", err)
+	}
+
+	r.EnterScope()
+	outerAlias := &model.AliasRef{Name: "A"}
+	if err := r.Alias("A", outerAlias); err != nil {
+		t.Fatalf("Alias(A) unexpected err: %v", err)
+	}
+
+	r.EnterScope()
+	innerAlias := &model.AliasRef{Name: "A shadow"}
+	if err := r.Alias("A", innerAlias); err != nil {
+		t.Fatalf("Shadow Alias(A) unexpected err: %v", err)
+	}
+
+	got, err := r.ResolveLocal("A")
+	if err != nil {
+		t.Fatalf("ResolveLocal(A) unexpected err: %v", err)
+	}
+	if diff := cmp.Diff(innerAlias, got); diff != "" {
+		t.Errorf("ResolveLocal(A) with inner scope diff (-want +got):\n%v", diff)
+	}
+
+	r.ExitScope()
+
+	got, err = r.ResolveLocal("A")
+	if err != nil {
+		t.Fatalf("ResolveLocal(A) after inner ExitScope unexpected err: %v", err)
+	}
+	if diff := cmp.Diff(outerAlias, got); diff != "" {
+		t.Errorf("ResolveLocal(A) after inner ExitScope diff (-want +got):\n%v", diff)
+	}
+}
+
 func TestScopedStructs(t *testing.T) {
 	// Test scoping and de-scoping of structs in context.
 	r := NewResolver[result.Value, *model.FunctionDef]()

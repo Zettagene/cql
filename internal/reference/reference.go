@@ -178,6 +178,25 @@ func (r *Resolver[T, F]) ResolveInclude(name string) *model.LibraryIdentifier {
 	return nil
 }
 
+// WithIncludedLibrary temporarily switches the current library to the named included library while
+// fn runs. This is used during interpretation so that unqualified references inside the included
+// library resolve against that library instead of the caller.
+func (r *Resolver[T, F]) WithIncludedLibrary(name string, fn func() error) error {
+	iKey := includeKey{localID: name, includedBy: r.currLib}
+	i, ok := r.includedLibs[iKey]
+	if !ok {
+		return fmt.Errorf("could not resolve the library name %s", name)
+	}
+
+	prev := r.currLib
+	r.currLib = namedLibKey{qualified: i.Qualified, version: i.Version}
+	defer func() {
+		r.currLib = prev
+	}()
+
+	return fn()
+}
+
 // Def holds the information needed to define a definition.
 type Def[T any] struct {
 	Name     string
@@ -437,12 +456,13 @@ func (r *Resolver[T, F]) ScopedStruct() (T, error) {
 
 // Alias creates a new alias within the current scope. When EndScope is called all aliases in the
 // scope will be removed. Calling ResolveLocal with the same name will return the stored type t.
-// Names must be unique within the CQL library.
+// Names must be unique within the current scope and cannot collide with definitions in the CQL
+// library.
 func (r *Resolver[T, F]) Alias(name string, a T) error {
 	if len(r.aliases) == 0 {
 		return errors.New("internal error - EnterScope must be called before creating an alias")
 	}
-	if err := r.isLocallyUnique(name); err != nil {
+	if err := r.isAliasUnique(name); err != nil {
 		return err
 	}
 	aKey := aliasKey{r.currLib, name}
@@ -516,6 +536,25 @@ func (r *Resolver[T, F]) isLocallyUnique(name string) error {
 	return nil
 }
 
+func (r *Resolver[T, F]) isAliasUnique(name string) error {
+	dKey := defKey{r.currLib, name}
+	if _, ok := r.defs[dKey]; ok {
+		return fmt.Errorf("identifier %v already exists in this CQL library", dKey.name)
+	}
+
+	iKey := includeKey{localID: name, includedBy: r.currLib}
+	if _, ok := r.includedLibs[iKey]; ok {
+		return fmt.Errorf("identifier %v already exists in this CQL library", iKey.localID)
+	}
+
+	aKey := aliasKey{r.currLib, name}
+	if _, ok := r.findAliasInCurrentScope(aKey); ok {
+		return fmt.Errorf("alias %v already exists", aKey.name)
+	}
+
+	return nil
+}
+
 func (r *Resolver[T, F]) isFuncLocallyUnique(name string, operands []types.IType) error {
 	if overloads, ok := r.builtinFuncs[name]; ok {
 		for _, overload := range overloads {
@@ -537,12 +576,21 @@ func (r *Resolver[T, F]) isFuncLocallyUnique(name string, operands []types.IType
 }
 
 func (r *Resolver[T, F]) findAlias(aKey aliasKey) (T, bool) {
-	for _, aMap := range r.aliases {
+	for i := len(r.aliases) - 1; i >= 0; i-- {
+		aMap := r.aliases[i]
 		if t, ok := aMap[aKey]; ok {
 			return t, true
 		}
 	}
 	return zero[T](), false
+}
+
+func (r *Resolver[T, F]) findAliasInCurrentScope(aKey aliasKey) (T, bool) {
+	if len(r.aliases) == 0 {
+		return zero[T](), false
+	}
+	t, ok := r.aliases[len(r.aliases)-1][aKey]
+	return t, ok
 }
 
 func exactMatch(ops1, ops2 []types.IType) bool {
